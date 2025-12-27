@@ -19,5 +19,13 @@ This project focuses on correctness, clarity, and system guarantees.
 
 ## How to run
 
+### Requirements
+- Python 3.9+
+
+### Steps
+1. Open a terminal (PowerShell on Windows, Terminal on macOS/Linux)
+2. Navigate to the folder containing `cig.py`
+3. Run the gate with a JSON file:
+
 ```bash
 python cig.py --input-file input.json
