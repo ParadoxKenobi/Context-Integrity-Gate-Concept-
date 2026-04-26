@@ -86,6 +86,23 @@ def test_flag_secret_like_value_on_evaluate():
     assert any(issue.code == "W_SECRET_VALUE" for issue in result.issues)
 
 
+
+
+def test_flag_process_does_not_persist():
+    gate = build_default_gate()
+
+    trusted = gate.process(
+        {
+            "schema_version": 1,
+            "context_type": "profile",
+            "subject": {"id": "u1", "kind": "user"},
+            "attributes": {"note": "sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"},
+        }
+    )
+
+    assert trusted["attributes"]["note"].startswith("sk-")
+    assert gate._store.all() == []
+
 def test_custom_gate_with_required_optional_fields():
     field_specs = [
         FieldSpec("record_id", str, required=True),

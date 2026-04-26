@@ -84,7 +84,8 @@ class ContextIntegrityGate:
         if result.decision == Decision.REJECT:
             descriptions = "; ".join(f"{i.code}: {i.message}" for i in result.issues)
             raise ContextRejection(descriptions or "Context rejected")
-        self._store.persist(result.canonical_context)
+        if result.decision == Decision.ACCEPT:
+            self._store.persist(result.canonical_context)
         return result.canonical_context
 
     def evaluate(self, raw_context: Mapping[str, Any]) -> GateResult:
