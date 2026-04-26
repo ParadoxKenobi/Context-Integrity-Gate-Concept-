@@ -3,6 +3,7 @@ import pytest
 from context_gate import (
     ContextIntegrityGate,
     ContextRejection,
+    Decision,
     FieldSpec,
     PolicyEngine,
     TrustedContextStore,
@@ -16,20 +17,20 @@ def test_successful_pipeline_persists_canonical_context():
 
     trusted = gate.process(
         {
-            "user_id": " Alice ",
-            "email": "Alice@example.org",
-            "age": "30",
-            "active": "true",
-            "country": "US",
+            "schema_version": 1,
+            "context_type": "Profile",
+            "subject": {"id": "U1", "kind": "User"},
+            "attributes": {"name": " Alice   Doe "},
+            "metadata": {"source_app": "Demo"},
         }
     )
 
     assert trusted == {
-        "user_id": "alice",
-        "email": "alice@example.org",
-        "age": 30,
-        "active": True,
-        "country": "us",
+        "schema_version": 1,
+        "context_type": "profile",
+        "subject": {"id": "u1", "kind": "user"},
+        "attributes": {"name": "alice doe"},
+        "metadata": {"source_app": "demo"},
     }
     assert gate._store.all() == [trusted]
 
@@ -38,9 +39,16 @@ def test_validation_failure_blocks_persistence():
     gate = build_default_gate()
 
     with pytest.raises(ContextRejection) as excinfo:
-        gate.process({"user_id": "ab", "email": "bad-email", "age": 200})
+        gate.process(
+            {
+                "schema_version": 0,
+                "context_type": "profile",
+                "subject": {"id": "u1", "kind": "user"},
+                "attributes": {"x": "y"},
+            }
+        )
 
-    assert "Validation failed" in str(excinfo.value)
+    assert "E_SCHEMA_VERSION_INVALID" in str(excinfo.value)
     assert gate._store.all() == []
 
 
@@ -48,10 +56,34 @@ def test_policy_rejection_explains_reason():
     gate = build_default_gate()
 
     with pytest.raises(ContextRejection) as excinfo:
-        gate.process({"user_id": "alice", "email": "user@example.com", "age": 25})
+        gate.process(
+            {
+                "schema_version": 1,
+                "context_type": "profile",
+                "subject": {"id": "u1", "kind": "user"},
+                "attributes": {"x": "y"},
+                "metadata": {"archived": True},
+            }
+        )
 
-    assert "example.com addresses are not permitted" in str(excinfo.value)
+    assert "archived contexts are not accepted" in str(excinfo.value)
     assert gate._store.all() == []
+
+
+def test_flag_secret_like_value_on_evaluate():
+    gate = build_default_gate()
+
+    result = gate.evaluate(
+        {
+            "schema_version": 1,
+            "context_type": "profile",
+            "subject": {"id": "u1", "kind": "user"},
+            "attributes": {"note": "sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"},
+        }
+    )
+
+    assert result.decision == Decision.FLAG
+    assert any(issue.code == "W_SECRET_VALUE" for issue in result.issues)
 
 
 def test_custom_gate_with_required_optional_fields():
@@ -71,10 +103,27 @@ def test_custom_gate_with_required_optional_fields():
     store = TrustedContextStore()
     gate = ContextIntegrityGate(field_specs, validation_rules, policy_engine, store)
 
-    trusted = gate.process({"record_id": "RID-1", "payload_version": "2"})
-    assert trusted == {"record_id": "rid-1", "payload_version": 2}
-    assert gate._store.all() == [trusted]
+    trusted = gate.process(
+        {
+            "record_id": "RID-1",
+            "payload_version": "2",
+            "schema_version": 1,
+            "context_type": "custom",
+            "subject": {"id": "u1", "kind": "user"},
+            "attributes": {},
+        }
+    )
+    assert trusted["record_id"] == "rid-1"
+    assert trusted["payload_version"] == 2
 
     with pytest.raises(ContextRejection):
-        gate.process({"record_id": "RID-1", "payload_version": "5"})
-    assert gate._store.all() == [trusted]
+        gate.process(
+            {
+                "record_id": "RID-1",
+                "payload_version": "5",
+                "schema_version": 1,
+                "context_type": "custom",
+                "subject": {"id": "u1", "kind": "user"},
+                "attributes": {},
+            }
+        )
